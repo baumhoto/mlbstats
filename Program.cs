@@ -1,17 +1,20 @@
-﻿using System.Runtime.InteropServices.JavaScript;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using mlbstats;
 using mlbstats.EF;
 
 internal class Program
 {
+    private static List<Game> _games;
+    private static DateTime _gameDate;
+
     public static void Main(string[] args)
     {
-        var gameDate = DateTime.Today.AddDays(-1);
+        _gameDate = DateTime.Today.AddDays(-1);
+        _games = CalculateGameStats(_gameDate);
+        
         var gameId = 0;
 
-        ListGames(gameDate, gameId);
-
+        ListGames(gameId);
 
         var userInput = string.Empty;
 
@@ -24,7 +27,7 @@ internal class Program
             }
             else if (userInput.ToLower().StartsWith("i"))
             {
-                BestInnings(gameDate);
+                BestInnings();
             }
             else if (userInput.ToLower().Contains("q"))
             {
@@ -32,26 +35,19 @@ internal class Program
             }
             else
             {
-                ListGames(gameDate, 0);
+                ListGames(0);
             }
 
             userInput = null;
 
         } while (string.IsNullOrWhiteSpace(userInput));
-
-        
-        
     }
 
-    private static void BestInnings(DateTime gameDate)
+    private static List<Game> CalculateGameStats(DateTime gameDate)
     {
-        var context = new StatsContext();
-
-        Console.WriteLine($"Best innings for {gameDate}");
-
-        var gameStats = new List<GameStats>();
+        var result = new List<Game>();
         
-
+        var context = new StatsContext();
         foreach (var game in context.Games
                      .AsNoTracking()
                      .Include(g => g.Plays)
@@ -60,11 +56,21 @@ internal class Program
         {
             if (game.Date == gameDate)
             {
-                gameStats.Add(CalculateGameStats(game));
+                game.GameStats = CalculateGameStats(game);
+                result.Add(game);
             }
-        }
+        } 
+        
+        return result;
+    }
 
-        var allInnings = gameStats.SelectMany(x => x.InningStats);
+    private static void BestInnings()
+    {
+
+        Console.WriteLine($"Best innings for {_gameDate}");
+
+        
+        var allInnings = _games.SelectMany(x => x.GameStats.InningStats);
 
         foreach (var inningStats in allInnings.OrderByDescending(x => x.InningRating).Take(10))
         {
@@ -85,23 +91,17 @@ internal class Program
         }
     }
 
-    private static void ListGames(DateTime gameDate, int gameId)
+    private static void ListGames(int gameId)
     {
-        var context = new StatsContext();
+        Console.WriteLine($"Games for {_gameDate}");
 
-        Console.WriteLine($"Games for {gameDate}");
-
-        foreach (var game in context.Games
-                     .AsNoTracking()
-                     .Include(g => g.Plays)
-                     .Include(g => g.AwayTeam)
-                     .Include(g => g.HomeTeam))
+        foreach (var game in _games.OrderByDescending(x => x.GameStats.Rating))
         {
-            if ((game.Date == gameDate && gameId == 0) || game.Id == gameId)
+            if (gameId == 0 || game.Id == gameId)
             {
-                var gameStats = CalculateGameStats(game);
 
-                Console.WriteLine($"Game: {game.AwayTeam.Abbreviation} vs. {game.HomeTeam.Abbreviation} " +
+                Console.WriteLine($"Id: {game.Id, 4} " +
+                                  $"Game: {game.AwayTeam.Abbreviation} vs. {game.HomeTeam.Abbreviation} " +
                                   // $"Innings: {gameStats.InningStats.Count} " +
                                   // $"Plays: {game.Plays.Count, 2} " +
                                   // $"Pitches: {gameStats.Pitches, 2} " +
@@ -117,8 +117,10 @@ internal class Program
                                   // $"Scores: {gameStats.Scores, 2} " +
                                   // $"AwayTeamScore: {gameStats.AwayTeamsScore, 2} " +
                                   // $"HomeTeamScore: {gameStats.HomeTeamScore, 2} " +
-                                  $"GameRating: {gameStats.Rating, 3} " +
-                                  $"Id: {game.Id}");
+                                  $"GameRating: {game.GameStats.Rating, 3} " +
+                                  $"CloseGame: {game.GameStats.CloseGame, 5} " +
+                                  $"AwayTeamRating {game.GameStats.AwayTeamRating} " +
+                                  $"HomeTeamRating {game.GameStats.HomeTeamRating}");
             }
         }
     }
@@ -128,25 +130,20 @@ internal class Program
         if (gameid == 0)
             return;
         
-        var context = new StatsContext();
-
         Console.WriteLine($"Details for {gameid}");
-        var game = context.Games
-            .AsNoTracking()
-            .Include(g => g.Plays)
-            .Include(g => g.AwayTeam)
-            .Include(g => g.HomeTeam)
-            .SingleOrDefault(g => g.Id == gameid);
 
+        var game = _games.SingleOrDefault(g => g.Id == gameid);
 
         if (game == null)
         {
             Console.WriteLine($"No game data found for {gameid}");
         }
 
-        var gameStats = CalculateGameStats(game);
 
-        Console.WriteLine($"Game: {game.AwayTeam.Abbreviation} vs. {game.HomeTeam.Abbreviation}");
+        Console.WriteLine($"Game: {game.AwayTeam.Abbreviation} vs. {game.HomeTeam.Abbreviation} " +
+                          $"Close Game: {game.GameStats.CloseGame} " +
+                        $"AwayTeamRating: { game.GameStats.AwayTeamRating } " +
+                        $"HomeTeamRating: {game.GameStats.HomeTeamRating} ");
         
         // TODO Generate Pseudo InningStats to prevent spoiler
         // if (gameStats.InningStats.Count == 17)
@@ -157,8 +154,9 @@ internal class Program
         // }
 
         // Show only regular innings
-        foreach (var inningStats in gameStats.InningStats.Where(i => i.Inning.Number < 10))
+        foreach (var inningStats in game.GameStats.InningStats.Where(i => i.Inning.Number < 10))
         {
+            
             Console.WriteLine(
                 $"Inning {inningStats.Inning.Number,2} Half: {inningStats.Inning.Half,10} " +
                 // $"Pitches: {inningStats.Pitches,2} " +
@@ -174,9 +172,17 @@ internal class Program
                 // $"Scores: {inningStats.Scores,2} " +
                 $"Rating: {inningStats.InningRating}");
         }
-
-        if (gameStats.InningStats.Count == 17)
+        
+        
+        // generate a seudo-inning to prevent spoilers if bottom 9th is skipped
+        if (game.GameStats.InningStats.Count == 17)
         {
+            var inningMinHome = game.GameStats.InningStats.Where(i => i.Inning.Half == InningHalf.Bottom)
+                .Min(i => i.InningRating);
+
+            var inningMaxHome = game.GameStats.InningStats.Where(i => i.Inning.Half == InningHalf.Bottom)
+                .Max(i => i.InningRating);
+                
             var random = new Random();
              Console.WriteLine(
                             $"Inning {9,2} Half: {InningHalf.Bottom,10} " +
@@ -191,7 +197,7 @@ internal class Program
                             // $"GroundOuts: {inningStats.GroundOuts,2} " +
                             // $"FlyBalls: {inningStats.FlyBalls,2} " +
                             // $"Scores: {inningStats.Scores,2} " +
-                            $"Rating: {random.Next(12, 24)}");
+                            $"Rating: {random.Next(inningMinHome-2, inningMaxHome+2)}");
         }
 
     }
@@ -236,7 +242,6 @@ internal class Program
                     inningStats.HomeRuns++;
                     inningStats.Scores++;
                 }
-                
 
                 // Walks or Hit by Pitch
                 inningStats.Walks += playDetail.StartsWith("walk") ? 1 : 0;

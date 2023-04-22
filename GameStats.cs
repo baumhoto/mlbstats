@@ -76,6 +76,24 @@ public class GameStats
         get { return InningStats.Where(i => i.Inning.Half == InningHalf.Bottom).Sum(i => i.Scores); }
     }
 
+    public int AwayTeamRating
+    {
+        get { return InningStats.Where(i => i.Inning.Half == InningHalf.Top).Sum(i => i.InningRating); }
+    }
+    
+    public int HomeTeamRating
+    {
+        get { return InningStats.Where(i => i.Inning.Half == InningHalf.Bottom).Sum(i => i.InningRating); }
+    }
+
+    public bool CloseGame
+    {
+        get
+        {
+            return Int32.Abs(AwayTeamsScore - HomeTeamScore) <= 3;
+        } 
+    }
+
     public int Rating => CalculateGameRating();
 
     private int CalculateGameRating()
@@ -88,7 +106,13 @@ public class GameStats
             inningRatingsSum += 50;
         }
 
-        inningRatingsSum += 50 - Int32.Abs(AwayTeamsScore - HomeTeamScore) * 10;
+        inningRatingsSum += 50 - Int32.Abs(AwayTeamsScore - HomeTeamScore); // * 10
+
+
+        var inningsRatingSumAwayTeam = InningStats.Where(i => i.Inning.Half == InningHalf.Top).Sum(i => i.InningRating);
+        var inningsRatingSumHomeTeam = InningStats.Where(i => i.Inning.Half == InningHalf.Bottom).Sum(i => i.InningRating);
+
+        inningRatingsSum += 50 - Int32.Abs(inningsRatingSumAwayTeam - inningsRatingSumHomeTeam);
 
         return inningRatingsSum;
     }
